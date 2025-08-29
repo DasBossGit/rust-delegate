@@ -202,10 +202,78 @@ pub enum ReturnExpression {
     Unwrap,
 }
 
+enum PtrTargetKind {
+    Ref,
+    Deref,
+}
+impl syn::parse::Parse for PtrTargetKind {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        if input.peek(syn::Token![&]) {
+            input.parse::<syn::Token![&]>()?;
+            Ok(PtrTargetKind::Ref)
+        } else if input.peek(syn::Token![*]) {
+            input.parse::<syn::Token![*]>()?;
+            Ok(PtrTargetKind::Deref)
+        } else {
+            Err(syn::Error::new(
+                input.span(),
+                "Expected `&` or `*` for field attribute",
+            ))
+        }
+    }
+}
+impl PtrTargetKind {
+    pub fn wrap_expr(&self, expr: impl ToTokens) -> TokenStream {
+        match self {
+            PtrTargetKind::Ref => quote::quote! { &(#expr) },
+            PtrTargetKind::Deref => quote::quote! { *(#expr) },
+        }
+    }
+}
+
+pub struct TargetField {
+    target_kind: Vec<PtrTargetKind>,
+    path: syn::Path,
+}
+impl ::syn::parse::Parse for TargetField {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let mut target_kind = Vec::new();
+        while input.peek(syn::Token![*]) || input.peek(syn::Token![&]) {
+            target_kind.push(input.parse()?);
+        }
+        let path = input.parse::<syn::Path>()?;
+        Ok(TargetField { target_kind, path })
+    }
+}
+impl TargetField {
+    pub fn wrap_expr(&self, expr: impl ToTokens) -> TokenStream {
+        let path = &self.path;
+        if self.target_kind.is_empty() {
+            quote::quote! { #expr.#path }
+        } else {
+            let mut wrapped = quote::quote! { #expr.#path };
+            for kind in self.target_kind.iter().rev() {
+                wrapped = kind.wrap_expr(wrapped);
+            }
+            quote::quote! {
+                #[allow(unused_parens)]
+                #wrapped
+            }
+        }
+
+        /* if self.is_ref {
+            quote::quote! { (&(#expr.#path)) }
+        } else {
+            quote::quote! { #expr.#path }
+        } */
+    }
+}
+
 enum ParsedAttribute {
     ReturnExpression(ReturnExpression),
     Await(bool),
     TargetMethod(syn::Ident),
+    TragetField(TargetField),
     ThroughTrait(TraitTarget),
     ConstantAccess(AssociatedConstant),
     Expr(TemplateExpr),
@@ -232,6 +300,12 @@ fn parse_attributes(
                             .parse_args::<CallMethodAttribute>()
                             .expect("Cannot parse `call` attribute");
                         Some(ParsedAttribute::TargetMethod(target.name))
+                    }
+                    "field" => {
+                        let target = attribute
+                            .parse_args::<TargetField>()
+                            .expect("Cannot parse `field` attribute");
+                        Some(ParsedAttribute::TragetField(target))
                     }
                     "into" => {
                         let into = match &attribute.meta {
@@ -301,6 +375,7 @@ fn parse_attributes(
 pub struct MethodAttributes<'a> {
     pub attributes: Vec<&'a Attribute>,
     pub target_method: Option<syn::Ident>,
+    pub target_field: Option<TargetField>,
     pub expressions: VecDeque<ReturnExpression>,
     pub generate_await: Option<bool>,
     pub target_trait: Option<TypePath>,
@@ -310,6 +385,7 @@ pub struct MethodAttributes<'a> {
 
 /// Iterates through the attributes of a method and filters special attributes.
 /// - call => sets the name of the target method to call
+/// - field => sets the path of the target field
 /// - into => generates a `into()` call after the delegated expression
 /// - try_into => generates a `try_into()` call after the delegated expression
 /// - await => generates an `.await` expression after the delegated expression
@@ -321,6 +397,7 @@ pub fn parse_method_attributes<'a>(
     method: &syn::TraitItemFn,
 ) -> MethodAttributes<'a> {
     let mut target_method: Option<syn::Ident> = None;
+    let mut target_field: Option<TargetField> = None;
     let mut expressions: Vec<ReturnExpression> = vec![];
     let mut generate_await: Option<bool> = None;
     let mut target_trait: Option<TraitTarget> = None;
@@ -376,6 +453,15 @@ pub fn parse_method_attributes<'a>(
                 }
                 expr_attr = Some(token_tree);
             }
+            ParsedAttribute::TragetField(path) => {
+                if target_field.is_some() {
+                    panic!(
+                        "Multiple field attributes specified for {}",
+                        method.sig.ident
+                    )
+                }
+                target_field = Some(path);
+            }
         }
     }
 
@@ -386,6 +472,7 @@ pub fn parse_method_attributes<'a>(
     MethodAttributes {
         attributes: other.into_iter().collect(),
         target_method,
+        target_field,
         generate_await,
         expressions: expressions.into(),
         target_trait: target_trait.map(|t| t.type_path),
@@ -436,6 +523,14 @@ pub fn parse_segment_attributes(attrs: &[Attribute]) -> SegmentAttributes {
                     panic!("Multiple `expr` attributes specified for segment");
                 }
                 expr_attr = Some(token_tree);
+            }
+            ParsedAttribute::TragetField(_) => {
+                if generate_await.is_some() {
+                    panic!("Await attribute is incompatible with field attribute.");
+                }
+                if target_trait.is_some() {
+                    panic!("Through attribute is incompatible with field attribute.");
+                }
             }
         }
     }

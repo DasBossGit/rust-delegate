@@ -1,5 +1,6 @@
 use delegate::delegate;
 
+#[derive(Clone)]
 struct Inner;
 impl Inner {
     pub fn method(&self, num: u32) -> u32 {
@@ -21,6 +22,12 @@ impl Wrapper {
             pub(crate) fn method(&self, num: u32) -> u32;
         }
     }
+    delegate! {
+        to self.inner {
+            #[field(&inner)]
+            pub(crate) fn inner(&self) -> &Inner;
+        }
+    }
 }
 
 #[test]
@@ -30,4 +37,5 @@ fn test_nested() {
     };
 
     assert_eq!(wrapper.method(3), 3);
+    assert_eq!(wrapper.inner().method(4), 4);
 }

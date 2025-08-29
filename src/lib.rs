@@ -308,7 +308,7 @@
 //!
 //! struct InnerType {}
 //! impl InnerType {
-//!     
+//!
 //! }
 //!
 //! trait MyTrait {
@@ -345,11 +345,11 @@
 //!          self.0 + n
 //!      }
 //!  }
-//!  
+//!
 //!  struct Wrapper {
 //!      inner: OnceCell<Inner>,
 //!  }
-//!  
+//!
 //!  impl Wrapper {
 //!      pub fn new() -> Self {
 //!          Self {
@@ -972,7 +972,16 @@ pub fn delegate(tokens: TokenStream) -> TokenStream {
                         get_const(#expr)
                     }}
                 } else if is_method {
-                    quote::quote! { #expr.#name#generics(#(#args),*) }
+                    if let Some(field) = &attributes.target_field {
+                        let expr = field.wrap_expr(expr);
+                        if attributes.target_method.is_some() {
+                            quote::quote! { #expr.#name#generics(#(#args),*) }
+                        } else {
+                            quote::quote! { #expr }
+                        }
+                    } else {
+                        quote::quote! { #expr.#name#generics(#(#args),*) }
+                    }
                 } else {
                     quote::quote! { #expr::#name#generics(#(#args),*) }
                 };
