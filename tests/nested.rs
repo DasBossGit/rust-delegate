@@ -26,6 +26,8 @@ impl Wrapper {
         to self.inner {
             #[field(&inner)]
             pub(crate) fn inner(&self) -> &Inner;
+            #[field(&mut inner)]
+            pub(crate) fn inner_mut(&mut self) -> &mut Inner;
         }
     }
 }

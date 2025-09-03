@@ -958,7 +958,7 @@ pub fn delegate(tokens: TokenStream) -> TokenStream {
 
             let modify_expr = |expr: &Expr| {
                 let body = if let Some(target_trait) = &attributes.target_trait {
-                    quote::quote! { #target_trait::#name#generics(#expr, #(#args),*) }
+                    quote::quote! { #target_trait::#name #generics(#expr, #(#args),*) }
                 } else if let Some(AssociatedConstant {
                     const_name,
                     trait_path,
@@ -975,15 +975,15 @@ pub fn delegate(tokens: TokenStream) -> TokenStream {
                     if let Some(field) = &attributes.target_field {
                         let expr = field.wrap_expr(expr);
                         if attributes.target_method.is_some() {
-                            quote::quote! { #expr.#name#generics(#(#args),*) }
+                            quote::quote! { #expr.#name #generics(#(#args),*) }
                         } else {
                             quote::quote! { #expr }
                         }
                     } else {
-                        quote::quote! { #expr.#name#generics(#(#args),*) }
+                        quote::quote! { #expr.#name #generics(#(#args),*) }
                     }
                 } else {
-                    quote::quote! { #expr::#name#generics(#(#args),*) }
+                    quote::quote! { #expr::#name #generics(#(#args),*) }
                 };
 
                 let mut body = if generate_await {

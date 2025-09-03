@@ -204,16 +204,28 @@ pub enum ReturnExpression {
 
 enum PtrTargetKind {
     Ref,
+    MutRef,
     Deref,
+    MutDeref,
 }
 impl syn::parse::Parse for PtrTargetKind {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         if input.peek(syn::Token![&]) {
             input.parse::<syn::Token![&]>()?;
-            Ok(PtrTargetKind::Ref)
+            if input.peek(syn::Token![mut]) {
+                input.parse::<syn::Token![mut]>()?;
+                Ok(PtrTargetKind::MutRef)
+            } else {
+                Ok(PtrTargetKind::Ref)
+            }
         } else if input.peek(syn::Token![*]) {
             input.parse::<syn::Token![*]>()?;
-            Ok(PtrTargetKind::Deref)
+            if input.peek(syn::Token![mut]) {
+                input.parse::<syn::Token![mut]>()?;
+                Ok(PtrTargetKind::MutDeref)
+            } else {
+                Ok(PtrTargetKind::Deref)
+            }
         } else {
             Err(syn::Error::new(
                 input.span(),
@@ -226,7 +238,10 @@ impl PtrTargetKind {
     pub fn wrap_expr(&self, expr: impl ToTokens) -> TokenStream {
         match self {
             PtrTargetKind::Ref => quote::quote! { &(#expr) },
+            PtrTargetKind::MutRef => quote::quote! { &mut (#expr) },
             PtrTargetKind::Deref => quote::quote! { *(#expr) },
+            PtrTargetKind::MutDeref => quote::quote! { *mut (#expr)
+            },
         }
     }
 }
